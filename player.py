@@ -1,7 +1,9 @@
 import pygame
+import math
 import numpy as np
 
 from nn import NeuralNetwork
+from copy import deepcopy
 from config import CONFIG
 
 
@@ -21,6 +23,12 @@ class Player():
 
         self.nn = NeuralNetwork(layer_sizes)
         self.fitness = 0  # fitness of agent
+
+    def blend(self, other):
+        for i in range(1, self.nn.bs):
+            self.nn.bs[i] = (self.nn.bs[i] + other.nn.bs[i])/2
+        for i in range(1, self.nn.Ws):
+            self.nn.Ws[i] = (self.nn.Ws[i] + other.nn.Ws[i])/2
 
     def move(self, box_lists, camera, events=None):
 
@@ -105,8 +113,47 @@ class Player():
         # box_lists: an array of `BoxList` objects
         # agent_position example: [600, 250]
         # velocity example: 7
+        cx, cy = agent_position
 
-        direction = -1
+        mnx = 1e18
+        next_box_list = None
+        for box_list in box_lists:
+            if mnx > box_list.x:
+                mnx = box_list.x
+                next_box_list = box_list
+        
+        def dist(x, y):
+            return math.sqrt((x-cx)**2 + (y-cy)**2)
+        MX = math.sqrt(CONFIG['HEIGHT']**2 + CONFIG['WIDTH']**2)
+        data = []
+        
+        if next_box_list:
+            data = [
+                cy/CONFIG['HEIGHT'],
+                (cy - next_box_list.gap_offset * 60)/CONFIG['HEIGHT'],
+                dist(next_box_list.x, next_box_list.gap_mid)/MX,
+                (cy - (next_box_list.gap_offset + next_box_list.gap_num) * 60)/CONFIG['HEIGHT'],
+                (CONFIG['HEIGHT']-cy)/CONFIG['HEIGHT']
+            ]
+        
+
+        data.append(velocity/10)
+        # print(data)
+
+        out = self.nn.forward(np.reshape(np.array(data), (6, 1)))
+        if mode == 'helicopter':
+            # print("holo: ", out[0][0])
+            direction = 1 if out[0][0] > 0.5 else -1
+        if mode == 'gravity':
+            direction = 1 if out[0][0] > 0.5 else -1
+        if mode == 'thrust':
+            if out[0][0] > 2/3:
+                direction = 1
+            elif out[0][0] > 1/3:
+                direction = 0
+            else:
+                direction = -1
+        
         return direction
 
     def collision_detection(self, mode, box_lists, camera):
